@@ -1,0 +1,69 @@
+;;;
+;;; Sentinel AV file-system minifilter
+;;;
+;;; Installation INF for the Sentinel real-time file-scan minifilter.
+;;; Load order group "FSFilter Anti-Virus" with an altitude in the anti-virus
+;;; range. The real altitude is assigned by Microsoft (allocated per vendor);
+;;; 320800 below is a development placeholder in the anti-virus range.
+;;;
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = "AntiVirus"
+ClassGuid   = {b1d1a169-c54f-4379-81db-bee7d88d7454}
+Provider    = %ProviderString%
+DriverVer   =
+CatalogFile = fsfilter.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir          = 12
+Sentinel.DriverFiles    = 12            ;%windir%\system32\drivers
+
+[DefaultInstall.NTamd64]
+OptionDesc  = %ServiceDescription%
+CopyFiles   = Sentinel.DriverFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService  = %ServiceName%,,Sentinel.Service
+
+[DefaultUninstall.NTamd64]
+DelFiles    = Sentinel.DriverFiles
+
+[DefaultUninstall.NTamd64.Services]
+DelService  = %ServiceName%,0x200      ;SPSVCINST_STOPSERVICE
+
+[Sentinel.Service]
+DisplayName      = %ServiceName%
+Description      = %ServiceDescription%
+ServiceBinary    = %12%\fsfilter.sys
+Dependencies     = "FltMgr"
+ServiceType      = 2                    ;SERVICE_FILE_SYSTEM_DRIVER
+StartType        = 0                    ;SERVICE_BOOT_START
+ErrorControl     = 1                    ;SERVICE_ERROR_NORMAL
+LoadOrderGroup   = "FSFilter Anti-Virus"
+AddReg           = Sentinel.AddRegistry
+
+[Sentinel.AddRegistry]
+HKR,"Instances","DefaultInstance",0x00000000,%DefaultInstance%
+HKR,"Instances\"%Instance1.Name%,"Altitude",0x00000000,%Instance1.Altitude%
+HKR,"Instances\"%Instance1.Name%,"Flags",0x00010001,%Instance1.Flags%
+
+[Sentinel.DriverFiles]
+fsfilter.sys
+
+[SourceDisksFiles]
+fsfilter.sys = 1,,
+
+[SourceDisksNames]
+1 = %DiskId1%,,,
+
+[Strings]
+ProviderString          = "Sentinel AV"
+ServiceName             = "SentinelFs"
+ServiceDescription      = "Sentinel AV File System Minifilter"
+DiskId1                 = "Sentinel AV Installation Disk"
+DefaultInstance         = "Sentinel Instance"
+Instance1.Name          = "Sentinel Instance"
+Instance1.Altitude      = "320800"
+Instance1.Flags         = 0x0            ; allow all attachments

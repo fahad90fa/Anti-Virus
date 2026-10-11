@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sentinel AV dashboard (WPF, .NET). Fast, native-looking Windows UI with no
+    kernel risk. Talks to the engine service over the IPC channel defined in
+    ipc/protocol.md. Build on Windows with the .NET SDK:  dotnet build
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Sentinel.UI</AssemblyName>
+    <RootNamespace>Sentinel.UI</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,17 @@
+# Sentinel AV — vulnerable-driver (BYOVD) blocklist.
+#
+# The most common way serious attackers reach the kernel today is not writing a
+# rootkit from scratch but loading a legitimately signed BUT vulnerable driver
+# and exploiting its bug (Bring Your Own Vulnerable Driver). The engine refuses
+# the load of known-abusable signed drivers through the image-load and ELAM
+# paths, mirroring Microsoft's own vulnerable-driver blocklist and extending it.
+#
+# Format: <sha256-hex>  <driver-name>  <reference>
+# These are SHA-256 hashes of the driver IMAGE. An unexpected new kernel driver
+# not on the allow path is held for scrutiny rather than trusted on its signature
+# alone. Entries below are illustrative placeholders; the authoritative list is
+# delivered (and extended from Microsoft's recommended block rules) through the
+# signed update pipeline.
+
+# <sha256>  <driver.sys>  <CVE / advisory>
+# 1111111111111111111111111111111111111111111111111111111111111111  example_vuln.sys  CVE-0000-00000

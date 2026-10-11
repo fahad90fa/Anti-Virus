@@ -1,0 +1,40 @@
+# Sentinel AV engine configuration (example).
+# Copy to sentinel.conf and adjust. Loaded with --config; individual values can
+# be overridden on the CLI with --set key=value. Lines starting with # are
+# comments. Keys map to sentinel::Config (engine/include/sentinel/core/config.h).
+
+# --- Signature database paths ---
+signatures_dir       = signatures
+blocklist_hashes     = signatures/hashes/blocklist.txt
+allowlist_hashes     = signatures/hashes/allowlist.txt
+rules_dir            = signatures/rules
+driverblock          = signatures/driverblock/blocklist.txt
+
+# --- Runtime state ---
+state_dir            = runtime
+quarantine_dir       = runtime/quarantine
+shadow_dir           = runtime/shadow
+timeline_path        = runtime/timeline.log
+
+# --- Verdict-fusion thresholds (fused score in [0,1]) ---
+block_threshold      = 0.85
+shadow_threshold     = 0.45
+monitor_threshold    = 0.20
+
+# --- Static heuristics ---
+high_entropy_threshold = 7.2
+
+# --- Ransomware heuristic ---
+ransomware_file_window = 20
+ransomware_window_ms   = 2000
+ransomware_entropy_min = 7.0
+
+# --- Feature toggles ---
+enable_behavioral      = true
+enable_script_analysis = true
+enable_memory_scan     = true
+enable_deception       = true
+quarantine_on_malicious = true
+
+# --- Logging: trace|debug|info|warn|error|off ---
+log_level            = info

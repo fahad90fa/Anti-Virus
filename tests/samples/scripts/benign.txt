@@ -1,0 +1,7 @@
+Get-ChildItem -Path C:\Users\Public\Documents -Filter *.txt |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 10 Name, Length, LastWriteTime |
+    Format-Table -AutoSize
+# A plainly benign administrative one-liner (control case). It lists recent text
+# files. No download, no in-memory execution, no encoding, no LOLBin abuse — the
+# script-intent classifier must NOT flag this.

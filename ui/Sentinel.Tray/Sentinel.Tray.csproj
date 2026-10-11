@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Sentinel AV system-tray presence + toast notifications. Lightweight
+    always-present indicator that reflects protection status and surfaces
+    detections. Launches the full dashboard (Sentinel.UI) on demand.
+    Build on Windows:  dotnet build
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>Sentinel.Tray</AssemblyName>
+    <RootNamespace>Sentinel.Tray</RootNamespace>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

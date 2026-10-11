@@ -1,0 +1,11 @@
+# Sentinel AV — known-good SHA-256 allowlist (Layer 1, the fast path).
+# Format: <sha256-hex>  <optional label>
+# A hit here ends the scan immediately with a Trusted verdict and routes the
+# file onto the fast path (no shadow gating, cached clean). Populate with hashes
+# of signed Windows and trusted vendor binaries. The allowlist wins ties with
+# the blocklist to bias away from false positives on known-good software.
+
+# SHA-256 of the empty file (harmless; useful as a self-test anchor).
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  Empty-File
+
+# --- Trusted OS/vendor binary hashes are added here by the update pipeline ---

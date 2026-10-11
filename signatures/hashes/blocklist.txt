@@ -1,0 +1,12 @@
+# Sentinel AV — known-malware SHA-256 blocklist (Layer 1, the fast path).
+# Format: <sha256-hex>  <optional label / family>
+# Lines beginning with '#' are comments. A hit here ends the scan immediately
+# with a Malicious verdict. This file ships NO live malware — only the standard,
+# harmless EICAR test-file hash, which every antivirus is expected to flag.
+
+# EICAR standard antivirus test file (68-byte canonical form).
+275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f  EICAR-Test-File
+
+# --- Example family entries (placeholders; real hashes ship via the signed
+# --- update pipeline, never committed with live-sample provenance) ---
+# 0000000000000000000000000000000000000000000000000000000000000001  Win32.Example.A

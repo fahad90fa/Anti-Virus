@@ -1,0 +1,57 @@
+# Build output
+out/
+build/out/
+bin/
+obj/
+*.o
+*.obj
+*.exe
+*.dll
+*.sys
+*.pdb
+*.ilk
+*.lib
+*.a
+*.so
+*.dylib
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake.state
+compile_commands.json
+
+# Rust
+engine/**/target/
+target/
+
+# .NET
+ui/**/bin/
+ui/**/obj/
+*.user
+
+# Signing material and secrets — NEVER commit
+build/signing/*.pfx
+build/signing/*.pvk
+build/signing/*.key
+build/signing/*.cer.private
+*.snk
+
+# Quarantine vault and runtime state (never commit live artifacts)
+*.vault
+quarantine_store/
+runtime/
+*.log
+sentinel-state/
+
+# Real malware samples must never be committed
+tests/samples/live/
+tests/samples/**/*.malware
+
+# Editor / OS
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

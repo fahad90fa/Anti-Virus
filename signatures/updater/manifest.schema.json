@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sentinel AV signature update manifest",
+  "type": "object",
+  "required": ["format", "version", "created_utc", "incremental", "files", "digest"],
+  "properties": {
+    "format": { "type": "integer", "const": 1 },
+    "version": { "type": "string", "description": "Unique, sortable version id" },
+    "prev_version": { "type": ["string", "null"], "description": "Version this delta applies onto (null for a full package)" },
+    "created_utc": { "type": "string", "format": "date-time" },
+    "incremental": { "type": "boolean" },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "op"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "op": { "type": "string", "enum": ["upsert", "delete"] }
+        }
+      }
+    },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 over the canonical file list" }
+  }
+}

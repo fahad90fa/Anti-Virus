@@ -1,0 +1,26 @@
+<UserControl x:Class="Sentinel.UI.Views.QuarantineView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- Detailed quarantine management view: review a convicted item, see the
+         detection reason and hash, and restore it in one click if it was a false
+         positive. Restore/Purge are re-authorized by the engine service. -->
+    <DockPanel Background="{StaticResource CardBrush}">
+        <TextBlock DockPanel.Dock="Top" Text="Quarantine vault" FontSize="18"
+                   FontWeight="Bold" Foreground="{StaticResource TextBrush}" Margin="12" />
+        <ListView x:Name="Items" Background="Transparent" BorderThickness="0"
+                  Foreground="{StaticResource TextBrush}" Margin="12">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="When" Width="140"
+                        DisplayMemberBinding="{Binding DisplayTime}" />
+                    <GridViewColumn Header="Original path" Width="280"
+                        DisplayMemberBinding="{Binding OriginalPath}" />
+                    <GridViewColumn Header="Reason" Width="200"
+                        DisplayMemberBinding="{Binding Reason}" />
+                    <GridViewColumn Header="SHA-256" Width="200"
+                        DisplayMemberBinding="{Binding Sha256}" />
+                </GridView>
+            </ListView.View>
+        </ListView>
+    </DockPanel>
+</UserControl>
