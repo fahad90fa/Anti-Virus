@@ -43,8 +43,9 @@ constexpr int kNumRegs = 8;
 // Syscall id <-> name mapping shared by the assembler and the interpreter.
 const std::map<std::string, std::uint8_t>& SyscallIds() {
     static const std::map<std::string, std::uint8_t> m = {
-        {"VirtualAlloc", 1}, {"WriteProcessMemory", 2}, {"CreateRemoteThread", 3},
-        {"WriteFile", 4}, {"Connect", 5}, {"RegSetValue", 6},
+        {"VirtualAlloc", std::uint8_t{1}}, {"WriteProcessMemory", std::uint8_t{2}},
+        {"CreateRemoteThread", std::uint8_t{3}}, {"WriteFile", std::uint8_t{4}},
+        {"Connect", std::uint8_t{5}}, {"RegSetValue", std::uint8_t{6}},
     };
     return m;
 }

@@ -65,10 +65,26 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - name: Install Windows Driver Kit
+      - name: Install Windows Driver Kit + VS extension
         shell: pwsh
         run: |
           choco install windowsdriverkit11 --no-progress -y
+          # The chocolatey WDK installs the kit but not the Visual Studio
+          # integration (the VSIX that provides the WindowsKernelModeDriver10.0
+          # toolset + kernel include/lib paths). Install it so msbuild can build
+          # Driver projects; without it msbuild falls back to a user-mode compile
+          # and cannot find ntddk.h.
+          $vsix = Get-ChildItem "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "WDK.vsix" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          $installer = Join-Path $vsPath "Common7\IDE\VSIXInstaller.exe"
+          if ($vsix -and (Test-Path $installer)) {
+            Write-Host "Installing WDK VSIX: $($vsix.FullName)"
+            $p = Start-Process -FilePath $installer -ArgumentList "/quiet","/norestart",$vsix.FullName -Wait -PassThru
+            Write-Host "VSIXInstaller exit code: $($p.ExitCode)"  # 0 ok, 1001 = already installed
+          } else {
+            Write-Host "WDK VSIX ($($vsix.FullName)) or VSIXInstaller ($installer) not found."
+          }
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
       - name: Build drivers (Release x64)
