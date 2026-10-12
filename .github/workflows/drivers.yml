@@ -19,8 +19,11 @@ concurrency:
 
 jobs:
   drivers-windows:
-    runs-on: windows-latest
-    continue-on-error: true
+    # Pinned to windows-2022 (Visual Studio 2022 / v17). windows-latest ships
+    # VS 18, but the WDK 11 VSIX targets VS 2022, so on newer images the driver
+    # toolset (WindowsKernelModeDriver10.0) fails to register and MSBuild falls
+    # back to a user-mode compile that cannot find ntddk.h.
+    runs-on: windows-2022
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -28,20 +31,17 @@ jobs:
         shell: pwsh
         run: |
           choco install windowsdriverkit11 --no-progress -y
-          # The chocolatey WDK installs the kit but not the Visual Studio
-          # integration (the VSIX providing the WindowsKernelModeDriver10.0
-          # toolset + kernel include/lib paths). Install it so msbuild can build
-          # Driver projects; without it msbuild falls back to a user-mode compile
-          # and cannot find ntddk.h.
+          # Install the WDK VS extension (VSIX) into VS 2022 so msbuild resolves
+          # the kernel-mode driver toolset + WDK include/lib paths.
           $vsix = Get-ChildItem "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "WDK.vsix" -ErrorAction SilentlyContinue | Select-Object -First 1
           $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -property installationPath
           $installer = Join-Path $vsPath "Common7\IDE\VSIXInstaller.exe"
           if ($vsix -and (Test-Path $installer)) {
-            Write-Host "Installing WDK VSIX: $($vsix.FullName)"
+            Write-Host "Installing WDK VSIX: $($vsix.FullName) into $vsPath"
             $p = Start-Process -FilePath $installer -ArgumentList "/quiet","/norestart",$vsix.FullName -PassThru
             if (-not $p.WaitForExit(600000)) {
-              Write-Host "VSIXInstaller timed out; killing and continuing (driver build may fail)."
+              Write-Host "VSIXInstaller timed out; killing."
               try { $p.Kill() } catch {}
             } else {
               Write-Host "VSIXInstaller exit code: $($p.ExitCode)"  # 0 ok, 1001 = already installed
@@ -49,6 +49,16 @@ jobs:
           } else {
             Write-Host "WDK VSIX ($($vsix.FullName)) or VSIXInstaller ($installer) not found."
           }
+      - name: Verify the WDK driver toolset is present
+        shell: pwsh
+        run: |
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          $targets = Join-Path $vsPath "MSBuild\Microsoft\VC\v170\Platforms\x64\PlatformToolsets\WindowsKernelModeDriver10.0"
+          Write-Host "Driver toolset dir: $targets"
+          if (Test-Path $targets) { Write-Host "OK: kernel-mode driver toolset present." }
+          else { Write-Host "WARNING: kernel-mode driver toolset NOT found; driver build will fail." }
+          Get-ChildItem "C:\Program Files*\Windows Kits\10\Include" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
       - name: Build drivers (Release x64)
