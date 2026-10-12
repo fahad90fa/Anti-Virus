@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  CI-only build overrides for the driver build-VERIFICATION job.
+
+  This file is imported ONLY in CI, via the documented MSBuild property
+  /p:ForceImportAfterCppTargets=<path-to-this-file> (which Microsoft.Cpp.targets
+  imports at the very end, after the WDK's own targets). The real VM / production
+  driver build does NOT pass that property, so it is completely unaffected: it
+  still stamps, verifies, and signs the INF and the .sys exactly as before.
+
+  Why it exists
+  -------------
+  The GitHub-hosted windows-2022 runner ships a WDK (10.0.26100) whose InfVerif
+  MSBuild task cannot load its own companion DLL:
+
+      error : INF verification exception: Unable to load DLL 'x86\InfVerif.dll':
+      The specified module could not be found. (HRESULT 0x8007007E)
+
+  INF verification is a packaging/deployment check, not part of compiling and
+  linking the kernel driver. The CI "Drivers (WDK build)" job exists only to
+  prove that the driver C/C++ compiles and links clean as a real kernel-mode
+  binary (toolset WindowsKernelModeDriver10.0, /kernel, KMDF). Loading, INF
+  verification, catalog/signing, and runtime behaviour are verified in the
+  disposable VM (see vm/VERIFICATION-RUNBOOK.md), never on a host and never in
+  this build job.
+
+  So for CI we replace the broken InfVerif step with a no-op. MSBuild honours
+  the LAST definition of a target by name, and because this file is imported
+  after the WDK targets, this empty InfVerif target wins and the broken tool is
+  never invoked. (Driver signing is disabled separately and cleanly with
+  /p:SignMode=Off on the msbuild command line, so the TestSign step does not run
+  either — CI has no code-signing certificate; test-signing happens in the VM.)
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Target Name="InfVerif" />
+</Project>

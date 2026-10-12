@@ -65,12 +65,26 @@ jobs:
           Get-ChildItem "C:\Program Files*\Windows Kits\10\Include" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
+      # This job VERIFIES THE BUILD: it proves the driver C/C++ compiles and
+      # links clean as a real kernel-mode binary (toolset
+      # WindowsKernelModeDriver10.0, /kernel, KMDF). The deployment/packaging
+      # steps are deliberately NOT run here:
+      #   * Signing  -> /p:SignMode=Off. CI has no code-signing certificate;
+      #     test-signing + loading happen in the disposable VM.
+      #   * INF verification -> neutralised CI-only via ForceImportAfterCppTargets
+      #     (drivers/ci-build-overrides.targets), because this runner image's WDK
+      #     10.0.26100 ships a broken InfVerif tool ("Unable to load DLL
+      #     'x86\InfVerif.dll'"). Real INF verification runs in the VM.
+      # The VM runbook (vm/VERIFICATION-RUNBOOK.md) does the full stamp/verify/
+      # sign/load/runtime pass; nothing here weakens that.
+      #
       # Core drivers: the two minifilters (file execute gate, shadow rollback
       # gate) and the ELAM boot driver. These are architecturally complete and
       # must build clean.
       - name: Build core drivers (fsfilter, shadowfs, elam)
         shell: pwsh
         run: |
+          $overrides = (Resolve-Path "drivers/ci-build-overrides.targets").Path
           $projects = @(
             "drivers/fsfilter/fsfilter.vcxproj",
             "drivers/shadowfs/shadowfs.vcxproj",
@@ -79,7 +93,8 @@ jobs:
           $failed = $false
           foreach ($p in $projects) {
             Write-Host "::group::msbuild $p"
-            msbuild $p /p:Configuration=Release /p:Platform=x64 /m
+            msbuild $p /p:Configuration=Release /p:Platform=x64 /m `
+              /p:SignMode=Off /p:ForceImportAfterCppTargets="$overrides"
             if ($LASTEXITCODE -ne 0) { $failed = $true; Write-Host "FAILED: $p" }
             Write-Host "::endgroup::"
           }
@@ -92,8 +107,10 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
+          $overrides = (Resolve-Path "drivers/ci-build-overrides.targets").Path
           foreach ($p in @("drivers/procmon/procmon.vcxproj","drivers/netfilter/netfilter.vcxproj")) {
             Write-Host "::group::msbuild $p"
-            msbuild $p /p:Configuration=Release /p:Platform=x64 /m
+            msbuild $p /p:Configuration=Release /p:Platform=x64 /m `
+              /p:SignMode=Off /p:ForceImportAfterCppTargets="$overrides"
             Write-Host "::endgroup::"
           }
