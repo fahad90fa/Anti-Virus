@@ -1,0 +1,91 @@
+name: Sentinel CI
+
+# Real build verification across platforms:
+#   - engine-linux   : portable C++17 engine + full test suite (the 71-test guard)
+#   - engine-windows : the same engine built with MSVC (/W4 /WX) + tests
+#   - ui-windows     : the WPF dashboard + tray built with .NET 8
+#   - drivers-windows: best-effort WDK build of the kernel drivers + ELAM
+#
+# Kernel DRIVERS cannot be loaded or runtime-verified in CI (no kernel debugger,
+# no test-signed reboot, no disposable VM). CI proves they BUILD; runtime
+# verification happens in the disposable VM via vm/run-integration-tests.ps1.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: sudo apt-get update && sudo apt-get install -y cmake g++
+      - name: Configure (warnings as errors)
+        run: cmake -S engine -B out -DSENTINEL_BUILD_TESTS=ON -DSENTINEL_BUILD_TOOLS=ON -DSENTINEL_WARNINGS_AS_ERRORS=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build out -j
+      - name: Test
+        run: ctest --test-dir out --output-on-failure
+
+  engine-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (MSVC, /W4 /WX)
+        run: cmake -S engine -B out -DSENTINEL_BUILD_TESTS=ON -DSENTINEL_BUILD_TOOLS=ON -DSENTINEL_WARNINGS_AS_ERRORS=ON
+      - name: Build Release
+        run: cmake --build out --config Release
+      - name: Test
+        run: ctest --test-dir out -C Release --output-on-failure
+
+  ui-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - name: Build dashboard
+        run: dotnet build ui/Sentinel.UI/Sentinel.UI.csproj -c Release
+      - name: Build tray
+        run: dotnet build ui/Sentinel.Tray/Sentinel.Tray.csproj -c Release
+
+  drivers-windows:
+    runs-on: windows-latest
+    # Best-effort: the WDK + its MSBuild integration must install cleanly on the
+    # hosted runner. If it cannot, the job reports the failure in logs without
+    # failing the whole workflow; the drivers are then verified in the VM instead.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Windows Driver Kit
+        shell: pwsh
+        run: |
+          choco install windowsdriverkit11 --no-progress -y
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+      - name: Build drivers (Release x64)
+        shell: pwsh
+        run: |
+          $projects = @(
+            "drivers/fsfilter/fsfilter.vcxproj",
+            "drivers/procmon/procmon.vcxproj",
+            "drivers/netfilter/netfilter.vcxproj",
+            "drivers/shadowfs/shadowfs.vcxproj",
+            "drivers/elam/elam.vcxproj"
+          )
+          $failed = $false
+          foreach ($p in $projects) {
+            Write-Host "::group::msbuild $p"
+            msbuild $p /p:Configuration=Release /p:Platform=x64 /m
+            if ($LASTEXITCODE -ne 0) { $failed = $true; Write-Host "FAILED: $p" }
+            Write-Host "::endgroup::"
+          }
+          if ($failed) { exit 1 }
