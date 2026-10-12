@@ -63,6 +63,7 @@ jobs:
     # hosted runner. If it cannot, the job reports the failure in logs without
     # failing the whole workflow; the drivers are then verified in the VM instead.
     continue-on-error: true
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Install Windows Driver Kit + VS extension
@@ -80,8 +81,14 @@ jobs:
           $installer = Join-Path $vsPath "Common7\IDE\VSIXInstaller.exe"
           if ($vsix -and (Test-Path $installer)) {
             Write-Host "Installing WDK VSIX: $($vsix.FullName)"
-            $p = Start-Process -FilePath $installer -ArgumentList "/quiet","/norestart",$vsix.FullName -Wait -PassThru
-            Write-Host "VSIXInstaller exit code: $($p.ExitCode)"  # 0 ok, 1001 = already installed
+            $p = Start-Process -FilePath $installer -ArgumentList "/quiet","/norestart",$vsix.FullName -PassThru
+            # Bound the wait: VSIXInstaller can hang headless. Cap at 8 minutes.
+            if (-not $p.WaitForExit(480000)) {
+              Write-Host "VSIXInstaller timed out; killing and continuing (driver build may fail)."
+              try { $p.Kill() } catch {}
+            } else {
+              Write-Host "VSIXInstaller exit code: $($p.ExitCode)"  # 0 ok, 1001 = already installed
+            }
           } else {
             Write-Host "WDK VSIX ($($vsix.FullName)) or VSIXInstaller ($installer) not found."
           }
