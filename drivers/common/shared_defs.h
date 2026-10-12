@@ -15,6 +15,15 @@
 #ifdef __cplusplus
 #include <cstdint>
 extern "C" {
+#elif defined(_KERNEL_MODE)
+/* Kernel mode: do NOT pull in the user-mode <stdint.h> — it conflicts with the
+ * WDK's km CRT headers (duplicate __CRTDECL / _VCRUNTIME_* definitions). Define
+ * the fixed-width types from the MSVC intrinsics instead. (ntddk.h/fltKernel.h
+ * are already included by the driver before this header.) */
+typedef unsigned __int8 uint8_t;
+typedef unsigned __int16 uint16_t;
+typedef unsigned __int32 uint32_t;
+typedef unsigned __int64 uint64_t;
 #else
 #include <stdint.h>
 #endif

@@ -40,58 +40,33 @@ static BDCB_CLASSIFICATION SentinelClassify(const UCHAR *ImageHash) {
     return BdCbClassificationUnknownImage;
 }
 
-/* Boot-driver callback invoked for each boot-start driver image. */
-VOID SentinelBootDriverCallback(_In_ BDCB_CALLBACK_CLASSIFICATION Classification,
-                                _Inout_ PBDCB_IMAGE_INFORMATION ImageInformation) {
-    UNREFERENCED_PARAMETER(Classification);
-
-    if (ImageInformation == NULL) {
-        return;
-    }
-
-    if (Classification == BdCbClassifyImage) {
-        /* ImageHash field carries the image hash the boot loader computed. */
-        const UCHAR *hash = NULL;
-        if (ImageInformation->ImageHash != NULL &&
-            ImageInformation->ImageHashLength >= 32) {
-            hash = (const UCHAR *)ImageInformation->ImageHash;
-        }
-        ImageInformation->Classification = SentinelClassify(hash);
-    }
-}
-
-/* Status-update callback (boot start/end notifications). */
-VOID SentinelBootStatusCallback(_In_ BDCB_STATUS_UPDATE_TYPE StatusType,
-                                _In_ PVOID DriverEntryData) {
-    UNREFERENCED_PARAMETER(StatusType);
-    UNREFERENCED_PARAMETER(DriverEntryData);
-    /* Hook point for recording the measured-boot timeline. No-op by default. */
-}
-
-/* The ELAM callback dispatcher routes classification vs status updates. */
+/* The ELAM boot-driver callback. Signature per PBOOT_DRIVER_CALLBACK_FUNCTION:
+ *   (PVOID CallbackContext, BDCB_CALLBACK_TYPE Classification, PVOID ImageInformation)
+ * For BdCbInitializeImage, ImageInformation points to a BDCB_IMAGE_INFORMATION
+ * we classify (good/bad/unknown); BdCbStatusUpdate is a boot-progress
+ * notification we do not act on. */
 VOID SentinelBootCallbackDispatch(
     _In_ PVOID CallbackContext,
-    _In_ BDCB_CALLBACK_TYPE CallbackType,
-    _In_ PVOID Data) {
+    _In_ BDCB_CALLBACK_TYPE Classification,
+    _In_ PVOID ImageInformation) {
     UNREFERENCED_PARAMETER(CallbackContext);
-    switch (CallbackType) {
-        case BdCbStatusUpdate:
-            SentinelBootStatusCallback(
-                ((PBDCB_STATUS_UPDATE)Data)->StatusUpdateType, Data);
-            break;
-        case BdCbInitializeImage:
-            SentinelBootDriverCallback(BdCbClassifyImage,
-                                       (PBDCB_IMAGE_INFORMATION)Data);
-            break;
-        default:
-            break;
+
+    if (Classification == BdCbInitializeImage && ImageInformation != NULL) {
+        PBDCB_IMAGE_INFORMATION info = (PBDCB_IMAGE_INFORMATION)ImageInformation;
+        /* ImageHash carries the image hash the boot loader computed. */
+        const UCHAR *hash = NULL;
+        if (info->ImageHash != NULL && info->ImageHashLength >= 32) {
+            hash = (const UCHAR *)info->ImageHash;
+        }
+        info->Classification = SentinelClassify(hash);
     }
+    /* BdCbStatusUpdate: boot-progress notification; nothing to do. */
 }
 
 VOID SentinelElamUnload(_In_ PDRIVER_OBJECT DriverObject) {
     UNREFERENCED_PARAMETER(DriverObject);
     if (gBootCallbackHandle != NULL) {
-        IoUnRegisterBootDriverCallback(gBootCallbackHandle);
+        IoUnregisterBootDriverCallback(gBootCallbackHandle);
         gBootCallbackHandle = NULL;
     }
 }
