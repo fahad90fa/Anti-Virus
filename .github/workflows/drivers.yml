@@ -1,0 +1,71 @@
+name: Drivers (WDK build)
+
+# Best-effort WDK build of the kernel drivers + ELAM on a Windows runner.
+# Separate from ci.yml because installing the WDK + its Visual Studio integration
+# is slow; this runs only when drivers change or on manual dispatch, so routine
+# pushes stay fast. Drivers can only be BUILT here — loaded and runtime-verified
+# in the disposable VM (vm/run-integration-tests.ps1).
+
+on:
+  push:
+    paths:
+      - "drivers/**"
+      - ".github/workflows/drivers.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: drivers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drivers-windows:
+    runs-on: windows-latest
+    continue-on-error: true
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Windows Driver Kit + VS extension
+        shell: pwsh
+        run: |
+          choco install windowsdriverkit11 --no-progress -y
+          # The chocolatey WDK installs the kit but not the Visual Studio
+          # integration (the VSIX providing the WindowsKernelModeDriver10.0
+          # toolset + kernel include/lib paths). Install it so msbuild can build
+          # Driver projects; without it msbuild falls back to a user-mode compile
+          # and cannot find ntddk.h.
+          $vsix = Get-ChildItem "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "WDK.vsix" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          $installer = Join-Path $vsPath "Common7\IDE\VSIXInstaller.exe"
+          if ($vsix -and (Test-Path $installer)) {
+            Write-Host "Installing WDK VSIX: $($vsix.FullName)"
+            $p = Start-Process -FilePath $installer -ArgumentList "/quiet","/norestart",$vsix.FullName -PassThru
+            if (-not $p.WaitForExit(600000)) {
+              Write-Host "VSIXInstaller timed out; killing and continuing (driver build may fail)."
+              try { $p.Kill() } catch {}
+            } else {
+              Write-Host "VSIXInstaller exit code: $($p.ExitCode)"  # 0 ok, 1001 = already installed
+            }
+          } else {
+            Write-Host "WDK VSIX ($($vsix.FullName)) or VSIXInstaller ($installer) not found."
+          }
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+      - name: Build drivers (Release x64)
+        shell: pwsh
+        run: |
+          $projects = @(
+            "drivers/fsfilter/fsfilter.vcxproj",
+            "drivers/procmon/procmon.vcxproj",
+            "drivers/netfilter/netfilter.vcxproj",
+            "drivers/shadowfs/shadowfs.vcxproj",
+            "drivers/elam/elam.vcxproj"
+          )
+          $failed = $false
+          foreach ($p in $projects) {
+            Write-Host "::group::msbuild $p"
+            msbuild $p /p:Configuration=Release /p:Platform=x64 /m
+            if ($LASTEXITCODE -ne 0) { $failed = $true; Write-Host "FAILED: $p" }
+            Write-Host "::endgroup::"
+          }
+          if ($failed) { exit 1 }

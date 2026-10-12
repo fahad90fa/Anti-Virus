@@ -1,14 +1,14 @@
 name: Sentinel CI
 
-# Real build verification across platforms:
+# Fast, reliable build verification on every push:
 #   - engine-linux   : portable C++17 engine + full test suite (the 71-test guard)
 #   - engine-windows : the same engine built with MSVC (/W4 /WX) + tests
 #   - ui-windows     : the WPF dashboard + tray built with .NET 8
-#   - drivers-windows: best-effort WDK build of the kernel drivers + ELAM
 #
-# Kernel DRIVERS cannot be loaded or runtime-verified in CI (no kernel debugger,
-# no test-signed reboot, no disposable VM). CI proves they BUILD; runtime
-# verification happens in the disposable VM via vm/run-integration-tests.ps1.
+# The kernel DRIVERS build in a separate workflow (drivers.yml) because the WDK
+# toolchain install is slow; it runs only on driver changes or manual dispatch.
+# Drivers can only be BUILT in CI — loaded and runtime-verified in the VM
+# (vm/run-integration-tests.ps1, vm/VERIFICATION-RUNBOOK.md).
 
 on:
   push:
@@ -56,59 +56,3 @@ jobs:
         run: dotnet build ui/Sentinel.UI/Sentinel.UI.csproj -c Release
       - name: Build tray
         run: dotnet build ui/Sentinel.Tray/Sentinel.Tray.csproj -c Release
-
-  drivers-windows:
-    runs-on: windows-latest
-    # Best-effort: the WDK + its MSBuild integration must install cleanly on the
-    # hosted runner. If it cannot, the job reports the failure in logs without
-    # failing the whole workflow; the drivers are then verified in the VM instead.
-    continue-on-error: true
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Windows Driver Kit + VS extension
-        shell: pwsh
-        run: |
-          choco install windowsdriverkit11 --no-progress -y
-          # The chocolatey WDK installs the kit but not the Visual Studio
-          # integration (the VSIX that provides the WindowsKernelModeDriver10.0
-          # toolset + kernel include/lib paths). Install it so msbuild can build
-          # Driver projects; without it msbuild falls back to a user-mode compile
-          # and cannot find ntddk.h.
-          $vsix = Get-ChildItem "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "WDK.vsix" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsPath = & $vswhere -latest -property installationPath
-          $installer = Join-Path $vsPath "Common7\IDE\VSIXInstaller.exe"
-          if ($vsix -and (Test-Path $installer)) {
-            Write-Host "Installing WDK VSIX: $($vsix.FullName)"
-            $p = Start-Process -FilePath $installer -ArgumentList "/quiet","/norestart",$vsix.FullName -PassThru
-            # Bound the wait: VSIXInstaller can hang headless. Cap at 8 minutes.
-            if (-not $p.WaitForExit(480000)) {
-              Write-Host "VSIXInstaller timed out; killing and continuing (driver build may fail)."
-              try { $p.Kill() } catch {}
-            } else {
-              Write-Host "VSIXInstaller exit code: $($p.ExitCode)"  # 0 ok, 1001 = already installed
-            }
-          } else {
-            Write-Host "WDK VSIX ($($vsix.FullName)) or VSIXInstaller ($installer) not found."
-          }
-      - name: Add MSBuild to PATH
-        uses: microsoft/setup-msbuild@v2
-      - name: Build drivers (Release x64)
-        shell: pwsh
-        run: |
-          $projects = @(
-            "drivers/fsfilter/fsfilter.vcxproj",
-            "drivers/procmon/procmon.vcxproj",
-            "drivers/netfilter/netfilter.vcxproj",
-            "drivers/shadowfs/shadowfs.vcxproj",
-            "drivers/elam/elam.vcxproj"
-          )
-          $failed = $false
-          foreach ($p in $projects) {
-            Write-Host "::group::msbuild $p"
-            msbuild $p /p:Configuration=Release /p:Platform=x64 /m
-            if ($LASTEXITCODE -ne 0) { $failed = $true; Write-Host "FAILED: $p" }
-            Write-Host "::endgroup::"
-          }
-          if ($failed) { exit 1 }
