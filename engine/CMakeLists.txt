@@ -83,6 +83,10 @@ if(SENTINEL_SERVICE_SOURCES)
   add_executable(sentinel ${SENTINEL_SERVICE_SOURCES})
   target_link_libraries(sentinel PRIVATE sentinel_engine)
   set_target_properties(sentinel PROPERTIES OUTPUT_NAME "sentinel")
+  if(WIN32)
+    # The filter-service mode uses the FltMgr user-mode API (fltlib).
+    target_link_libraries(sentinel PRIVATE fltlib)
+  endif()
 endif()
 
 # ---------------------------------------------------------------------------

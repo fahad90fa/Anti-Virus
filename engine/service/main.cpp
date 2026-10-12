@@ -35,6 +35,7 @@
 #include "sentinel/core/fs.h"
 #include "sentinel/core/logging.h"
 #include "sentinel/engine.h"
+#include "sentinel/service/filter_service.h"
 #include "sentinel/service/service.h"
 
 using namespace sentinel;
@@ -44,9 +45,11 @@ namespace {
 constexpr const char* kVersion = "Sentinel AV engine 0.1.0 (Phase 0 user-mode)";
 
 Service* g_service = nullptr;
+std::atomic<bool> g_filter_stop{false};
 
 void HandleSignal(int) {
     if (g_service) g_service->Stop();
+    g_filter_stop.store(true);
 }
 
 void PrintUsage() {
@@ -55,7 +58,8 @@ void PrintUsage() {
         "Usage: sentinel <command> [options]\n\n"
         "Commands:\n"
         "  scan <path> [--recursive]          Scan a file or directory tree\n"
-        "  watch <dir>... [--recursive]       Real-time watch + scan (service)\n"
+        "  watch <dir>... [--recursive]       Real-time watch + scan (user-mode)\n"
+        "  service [--fail-closed]            Connect to the kernel minifilter port (Windows)\n"
         "  selftest                           EICAR detection self-test\n"
         "  script <file>                      Analyze a script file for intent\n"
         "  quarantine list                    List the quarantine vault\n"
@@ -263,6 +267,34 @@ int CmdWatch(const Config& cfg, const std::vector<std::string>& args) {
     return 0;
 }
 
+int CmdService(const Config& cfg, const std::vector<std::string>& args) {
+    // Windows real-time service: connect to the minifilter port and answer
+    // verdicts from the engine. On non-Windows this reports Unsupported (use
+    // `watch` there). Fail-open by default; --fail-closed denies unknowns when
+    // the engine cannot produce a verdict in time.
+    FilterServiceOptions opts;
+    opts.fail_closed = HasFlag(args, "--fail-closed");
+
+    Engine engine(cfg);
+    Status init = engine.Initialize();
+    if (!init.ok()) {
+        std::fprintf(stderr, "engine init failed: %s\n", init.message().c_str());
+        return 1;
+    }
+    std::signal(SIGINT, HandleSignal);
+    std::signal(SIGTERM, HandleSignal);
+    g_filter_stop.store(false);
+
+    std::printf("Sentinel filter service starting (%s). Ctrl-C to stop.\n",
+                opts.fail_closed ? "fail-closed" : "fail-open");
+    Status s = RunFilterService(engine, opts, g_filter_stop);
+    if (!s.ok()) {
+        std::fprintf(stderr, "filter service: %s\n", s.message().c_str());
+        return s.code() == ErrorCode::Unsupported ? 2 : 1;
+    }
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -289,6 +321,9 @@ int main(int argc, char** argv) {
     }
     if (cmd == "watch") {
         return CmdWatch(cfg, args);
+    }
+    if (cmd == "service") {
+        return CmdService(cfg, args);
     }
 
     // Commands that need a live engine.
