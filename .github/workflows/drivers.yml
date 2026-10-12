@@ -37,17 +37,21 @@ jobs:
           $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
           $vsPath = & $vswhere -latest -property installationPath
           $installer = Join-Path $vsPath "Common7\IDE\VSIXInstaller.exe"
+          # On windows-2022 the choco WDK installer integrates with VS 2022 on its
+          # own, so this explicit VSIX install is only a fallback. Bound it hard
+          # (3 min) because VSIXInstaller can hang headless; a hang here must not
+          # stall the job.
           if ($vsix -and (Test-Path $installer)) {
             Write-Host "Installing WDK VSIX: $($vsix.FullName) into $vsPath"
             $p = Start-Process -FilePath $installer -ArgumentList "/quiet","/norestart",$vsix.FullName -PassThru
-            if (-not $p.WaitForExit(600000)) {
-              Write-Host "VSIXInstaller timed out; killing."
+            if (-not $p.WaitForExit(180000)) {
+              Write-Host "VSIXInstaller still running after 3 min; killing (choco may have already integrated)."
               try { $p.Kill() } catch {}
             } else {
               Write-Host "VSIXInstaller exit code: $($p.ExitCode)"  # 0 ok, 1001 = already installed
             }
           } else {
-            Write-Host "WDK VSIX ($($vsix.FullName)) or VSIXInstaller ($installer) not found."
+            Write-Host "WDK VSIX not found via search; relying on choco's VS integration."
           }
       - name: Verify the WDK driver toolset is present
         shell: pwsh

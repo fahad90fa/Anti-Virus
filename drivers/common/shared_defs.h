@@ -111,6 +111,14 @@ typedef struct _SENTINEL_REPLY {
     uint32_t reserved;
 } SENTINEL_REPLY;
 
+/* Connection context the user-mode engine sends when it connects to the port,
+ * so the kernel can reject a client speaking a different protocol version before
+ * any message is exchanged (the connect is refused with STATUS_REVISION_MISMATCH). */
+typedef struct _SENTINEL_CONNECT_CONTEXT {
+    uint32_t version;       /* must equal SENTINEL_PROTOCOL_VERSION */
+    uint32_t reserved;
+} SENTINEL_CONNECT_CONTEXT;
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif

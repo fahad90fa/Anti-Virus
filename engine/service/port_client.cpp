@@ -67,13 +67,22 @@ bool MapEventKind(std::uint32_t kind, std::uint32_t extra, ActionType* out) {
 
 Status RunFilterService(Engine& engine, const FilterServiceOptions& options,
                         std::atomic<bool>& stop) {
+    // Send our protocol version on connect; the kernel rejects a mismatch with
+    // STATUS_REVISION_MISMATCH before any message is exchanged.
+    SENTINEL_CONNECT_CONTEXT ctx;
+    ctx.version = SENTINEL_PROTOCOL_VERSION;
+    ctx.reserved = 0;
+
     HANDLE port = INVALID_HANDLE_VALUE;
-    HRESULT hr = ::FilterConnectCommunicationPort(SENTINEL_PORT_NAME, 0, nullptr, 0,
-                                                  nullptr, &port);
+    HRESULT hr = ::FilterConnectCommunicationPort(SENTINEL_PORT_NAME, 0, &ctx,
+                                                  sizeof(ctx), nullptr, &port);
     if (hr != S_OK) {
+        const char* why = (hr == HRESULT_FROM_WIN32(ERROR_REVISION_MISMATCH))
+                              ? "; protocol version mismatch with the driver"
+                              : "; is the minifilter loaded?";
         return Status::Error(ErrorCode::IoError,
                              "FilterConnectCommunicationPort failed (hr=" +
-                                 std::to_string(hr) + "); is the minifilter loaded?");
+                                 std::to_string(hr) + ")" + why);
     }
     SENTINEL_LOG(Info) << "connected to minifilter port " << "SentinelFsPort";
 

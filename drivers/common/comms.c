@@ -64,12 +64,20 @@ NTSTATUS SentinelPortConnect(_In_ PFLT_PORT ClientPort,
                              _Outptr_result_maybenull_ PVOID *ConnectionCookie) {
     PSENTINEL_COMMS comms = (PSENTINEL_COMMS)ServerPortCookie;
 
-    UNREFERENCED_PARAMETER(ConnectionContext);
-    UNREFERENCED_PARAMETER(SizeOfContext);
-
     if (comms == NULL) {
         return STATUS_INVALID_PARAMETER;
     }
+
+    /* Reject a client that does not speak our protocol version. The engine sends
+     * a SENTINEL_CONNECT_CONTEXT on connect; a missing/short/mismatched context
+     * fails the connect cleanly rather than exchanging incompatible messages. */
+    if (ConnectionContext == NULL ||
+        SizeOfContext < sizeof(SENTINEL_CONNECT_CONTEXT) ||
+        ((const SENTINEL_CONNECT_CONTEXT *)ConnectionContext)->version !=
+            SENTINEL_PROTOCOL_VERSION) {
+        return STATUS_REVISION_MISMATCH;
+    }
+
     /* Exactly one engine client. */
     comms->ClientPort = ClientPort;
     comms->EngineConnected = TRUE;
