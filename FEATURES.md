@@ -7,8 +7,14 @@ Blueprint*, as implemented in this repository.
 - ✅ **Done + verified** — implemented and exercised (builds, and covered by the
   passing test suite / CLI run).
 - ⚙️ **CI-build-verified on Windows** — compiles clean on a real Windows runner
-  in GitHub Actions (`.github/workflows/ci.yml`); runtime verification is pending
-  the disposable VM (`vm/run-integration-tests.ps1`, `vm/VERIFICATION-RUNBOOK.md`).
+  in GitHub Actions. User-mode code (engine, UI) builds via
+  `.github/workflows/ci.yml`; the kernel drivers build via
+  `.github/workflows/drivers.yml` on the real WDK kernel toolchain
+  (`WindowsKernelModeDriver10.0`, `/kernel`, KMDF 1.15) — they compile, link, and
+  pass the Universal-driver `ApiValidator`, all `/W4 /WX`. INF stamping and
+  verification, catalog generation, driver signing, loading, and runtime
+  behavior are **not** covered by CI; those remain pending the disposable VM
+  (`vm/run-integration-tests.ps1`, `vm/VERIFICATION-RUNBOOK.md`).
 - 🪟 **Source complete (Windows-target)** — complete, structurally correct source
   that builds with the WDK / .NET on Windows; runtime-verified only in the VM.
 
@@ -17,8 +23,13 @@ Verification baseline (from CI, commit-current):
 - `engine-windows` ✅ — engine (incl. the Windows FltMgr filter-service) builds
   MSVC `/W4 /WX` Release; 71 tests pass.
 - `ui-windows` ✅ — WPF dashboard + tray build with .NET 8.
-- `drivers-windows` ⚙️ — WDK driver build on the hosted runner (best-effort
-  toolchain); drivers otherwise built in the VM via `build/build.ps1`.
+- `drivers-windows` ⚙️ — **core drivers build green on the WDK kernel toolchain**:
+  the `fsfilter` and `shadowfs` minifilters and the `elam` boot driver compile,
+  link, and pass `ApiValidator` (`/W4 /WX`, `/kernel`, KMDF 1.15). The sensor
+  drivers (`procmon`, `netfilter`) are still best-effort (`continue-on-error`)
+  and do **not** yet build: as non-minifilter drivers they cannot share the
+  FltMgr port `comms.c` creates and need the control-device IOCTL comms refactor
+  (tracked). INF/sign/load/runtime are VM-gated, not covered here.
 - No `TODO`/stub markers in any Windows code path.
 
 **No acceptance criterion is marked VM-verified here**, because this work was
@@ -119,20 +130,29 @@ turnkey via the VM kit; see the final report and the runbook.
   graph. Builds clean on Windows CI; stub off Windows.
 - 🪟 ETW-TI consumer (runs under the anti-malware PPL process in the VM).
 
-## Kernel-mode core (`drivers/`) — 🪟
-- 🪟 File-system minifilter — intercept execute/create/write, synchronous verdict
-  gate, async behavioral events.
+## Kernel-mode core (`drivers/`) — ⚙️ minifilters · 🪟 sensor drivers
+- ⚙️ File-system minifilter (`fsfilter`) — intercept execute/create/write,
+  synchronous verdict gate, async behavioral events. Builds green on the WDK
+  kernel toolchain in CI (compile + link + `ApiValidator`).
 - 🪟 Process / thread / image / registry callbacks — with process-launch veto and
-  remote-thread (injection) detection.
+  remote-thread (injection) detection. In `procmon`; pending the sensor-driver
+  comms refactor before it builds in CI.
 - 🪟 Object-callback self-protection — strips dangerous access to protected
-  processes.
+  processes. In `procmon` (`selfprotect.c`); pending the comms refactor.
 - 🪟 WFP network callout — per-process connection filtering + C2/beacon events.
-- 🪟 Shadow COW minifilter — kernel half of the rollback gate.
-- 🪟 Kernel ⇄ user communication-port protocol (shared, versioned).
+  In `netfilter`; pending the comms refactor (and `wdf.h` decoupling — a WFP
+  callout is not a KMDF driver).
+- ⚙️ Shadow COW minifilter (`shadowfs`) — kernel half of the rollback gate.
+  Builds green on the WDK kernel toolchain in CI (compile + link + `ApiValidator`).
+- ⚙️ Kernel ⇄ user communication-port protocol (shared, versioned) — `comms.c`
+  compiles clean into both minifilters in CI.
 
-## Boot-time & rootkit/bootkit defense (`drivers/elam`) — 🪟
-- 🪟 ELAM boot driver — classifies boot drivers good/bad/unknown before load.
-- 🪟 BYOVD vulnerable-driver blocklist — constant-time hash lookup, updatable.
+## Boot-time & rootkit/bootkit defense (`drivers/elam`) — ⚙️
+- ⚙️ ELAM boot driver (`elam`) — classifies boot drivers good/bad/unknown before
+  load. Builds green on the WDK kernel toolchain in CI (compile + link +
+  `ApiValidator`).
+- ⚙️ BYOVD vulnerable-driver blocklist (`driverblock.c`) — constant-time hash
+  lookup, updatable; compiles clean into the ELAM driver in CI.
 - ✅ (Design) Secure Boot / TPM / PPL / cross-view relied on and documented.
 
 ## Interface (`ui/`) — ⚙️ (builds on Windows CI with .NET 8)
@@ -160,11 +180,11 @@ turnkey via the VM kit; see the final report and the runbook.
 | Phase | Scope | Status |
 | --- | --- | --- |
 | 0 | User-mode foundation | ✅ built + tested (engine, CLI, EICAR self-test) |
-| 1 | File minifilter | 🪟 driver source (VM build) |
-| 2 | Behavior & process callbacks | ✅ engine · 🪟 driver source |
-| 3 | Network layer (WFP) | 🪟 driver source |
-| 4 | Shadow-commit rollback gate | ✅ engine · 🪟 driver source |
-| 5 | Boot & rootkit tier (ELAM, PPL, BYOVD) | 🪟 driver source |
+| 1 | File minifilter | ⚙️ `fsfilter` builds on WDK CI |
+| 2 | Behavior & process callbacks | ✅ engine · 🪟 `procmon` (pending comms refactor) |
+| 3 | Network layer (WFP) | 🪟 `netfilter` (pending comms refactor) |
+| 4 | Shadow-commit rollback gate | ✅ engine · ⚙️ `shadowfs` builds on WDK CI |
+| 5 | Boot & rootkit tier (ELAM, PPL, BYOVD) | ⚙️ `elam`+BYOVD build on WDK CI · PPL design |
 | 6 | Hardening, UI, updates | ✅ engine/updater/tools · 🪟 UI |
 | 7 | Memory & exploit protection + sandbox | ✅ |
 | 8 | EDR + AMSI/ETW-TI fileless defense | ✅ (ETW-TI transport is Windows-only) |
