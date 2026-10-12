@@ -4,14 +4,26 @@ Status of every capability in the *Real-Time Protection Antivirus — Engineerin
 Blueprint*, as implemented in this repository.
 
 **Legend**
-- ✅ **Done + verified** — implemented and exercised on this machine (builds, and
-  covered by the passing test suite / CLI run).
+- ✅ **Done + verified** — implemented and exercised (builds, and covered by the
+  passing test suite / CLI run).
+- ⚙️ **CI-build-verified on Windows** — compiles clean on a real Windows runner
+  in GitHub Actions (`.github/workflows/ci.yml`); runtime verification is pending
+  the disposable VM (`vm/run-integration-tests.ps1`, `vm/VERIFICATION-RUNBOOK.md`).
 - 🪟 **Source complete (Windows-target)** — complete, structurally correct source
-  that builds with the WDK / .NET on Windows; not compiled on the Linux CI box by
-  design (Phase 0-first discipline — drivers run only in the disposable VM).
+  that builds with the WDK / .NET on Windows; runtime-verified only in the VM.
 
-Verification baseline: clean Release build of the engine succeeds; **71/71 unit +
-integration tests pass**; no `TODO`/stub markers in engine or drivers.
+Verification baseline (from CI, commit-current):
+- `engine-linux` ✅ — engine builds `-Werror`; **71/71 tests pass**.
+- `engine-windows` ✅ — engine (incl. the Windows FltMgr filter-service) builds
+  MSVC `/W4 /WX` Release; 71 tests pass.
+- `ui-windows` ✅ — WPF dashboard + tray build with .NET 8.
+- `drivers-windows` ⚙️ — WDK driver build on the hosted runner (best-effort
+  toolchain); drivers otherwise built in the VM via `build/build.ps1`.
+- No `TODO`/stub markers in any Windows code path.
+
+**No acceptance criterion is marked VM-verified here**, because this work was
+done in a Linux container with no Windows VM / WinDbg. The runtime criteria are
+turnkey via the VM kit; see the final report and the runbook.
 
 ---
 
@@ -101,7 +113,11 @@ integration tests pass**; no `TODO`/stub markers in engine or drivers.
   script analysis, quarantine list/restore, config, version.
 - ✅ Always-on service orchestrator + mutual watchdog.
 - ✅ Engine ⇄ UI IPC protocol (named pipe / loopback, JSON) documented.
-- 🪟 Windows filter-port client + ETW-TI consumer (guarded; stubs off Windows).
+- ⚙️ `sentinel service` — Windows FltMgr filter-service: connects the minifilter
+  port, validates the versioned protocol, answers the execute-gate with an engine
+  verdict (fail-open default, `--fail-closed`), feeds events into the action
+  graph. Builds clean on Windows CI; stub off Windows.
+- 🪟 ETW-TI consumer (runs under the anti-malware PPL process in the VM).
 
 ## Kernel-mode core (`drivers/`) — 🪟
 - 🪟 File-system minifilter — intercept execute/create/write, synchronous verdict
@@ -119,10 +135,11 @@ integration tests pass**; no `TODO`/stub markers in engine or drivers.
 - 🪟 BYOVD vulnerable-driver blocklist — constant-time hash lookup, updatable.
 - ✅ (Design) Secure Boot / TPM / PPL / cross-view relied on and documented.
 
-## Interface (`ui/`) — 🪟
-- 🪟 WPF dashboard — protection banner, live stats, scan box, detections +
-  quarantine lists, engine IPC client (MVVM).
-- 🪟 System-tray app — status icon, toasts, dashboard launch.
+## Interface (`ui/`) — ⚙️ (builds on Windows CI with .NET 8)
+- ⚙️ WPF dashboard — protection banner, live stats, scan box, detections +
+  quarantine lists, engine IPC client (MVVM). Compiles clean on Windows CI.
+- ⚙️ System-tray app — status icon, toasts, dashboard launch. Compiles clean on
+  Windows CI.
 
 ## Signatures & updates (`signatures/`) — ✅
 - ✅ Rule / hash / driver-block databases.
