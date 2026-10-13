@@ -35,7 +35,9 @@
       <AdditionalIncludeDirectories>..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(DDK_LIB_PATH)wdmsec.lib;$(DDK_LIB_PATH)fwpkclnt.lib;$(DDK_LIB_PATH)ndis.lib;$(DDK_LIB_PATH)uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- No uuid.lib: there is no km-mode uuid.lib, and the GUIDs are emitted as
+           data via <initguid.h> in wfp_callout.c / sensor_comms.c. -->
+      <AdditionalDependencies>$(DDK_LIB_PATH)wdmsec.lib;$(DDK_LIB_PATH)fwpkclnt.lib;$(DDK_LIB_PATH)ndis.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

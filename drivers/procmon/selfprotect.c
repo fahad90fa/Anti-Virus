@@ -14,8 +14,8 @@
  * Built with the WDK; kernel-mode C.
  */
 /* ntifs.h (NOT ntddk.h) is the single base header for this TU: it declares the
- * PROCESS_*/THREAD_* access-right macros used below, and the Ob callback types.
- * This TU never includes comms.h/sensor_comms.h, so there is no ntddk/ntifs
+ * PROCESS_ and THREAD_ access-right macros used below, and the Ob callback types.
+ * This TU never includes comms.h or sensor_comms.h, so there is no ntddk vs ntifs
  * ordering collision. */
 #include <ntifs.h>
 #include "../common/shared_defs.h"
@@ -25,8 +25,8 @@
  * routine turns into SentinelRegisterProtectedPid calls. Small fixed set. */
 #define SENTINEL_MAX_PROTECTED 8
 ULONG gProtectedPids[SENTINEL_MAX_PROTECTED] = {0};
-/* volatile + publish-slot-before-count so a lock-free reader (the Ob pre-op) that
- * observes an incremented count always sees the PID already stored. */
+/* volatile: read lock-free by the Ob pre-op, bumped by an atomic CAS slot-claim in
+ * SentinelRegisterProtectedPid so concurrent writers stay bounded and race-free. */
 volatile ULONG gProtectedCount = 0;
 PVOID gObRegHandle = NULL;
 
@@ -41,7 +41,13 @@ PVOID gObRegHandle = NULL;
 
 static BOOLEAN SentinelIsProtectedPid(ULONG Pid) {
     ULONG i;
-    for (i = 0; i < gProtectedCount; ++i) {
+    ULONG count = gProtectedCount;
+    /* Defensive clamp: the count is strictly bounded by the CAS in
+     * SentinelRegisterProtectedPid, but never read past the array. */
+    if (count > SENTINEL_MAX_PROTECTED) {
+        count = SENTINEL_MAX_PROTECTED;
+    }
+    for (i = 0; i < count; ++i) {
         if (gProtectedPids[i] == Pid) {
             return TRUE;
         }
@@ -50,13 +56,30 @@ static BOOLEAN SentinelIsProtectedPid(ULONG Pid) {
 }
 
 VOID SentinelRegisterProtectedPid(ULONG Pid) {
-    if (gProtectedCount < SENTINEL_MAX_PROTECTED && !SentinelIsProtectedPid(Pid)) {
-        /* Publish the slot before bumping the count so a concurrent lock-free
-         * reader that sees the new count always sees the stored PID. */
-        gProtectedPids[gProtectedCount] = Pid;
-        KeMemoryBarrier();
-        gProtectedCount++;
+    LONG idx;
+
+    if (SentinelIsProtectedPid(Pid)) {
+        return;
     }
+    /* Two writers can race here: DriverEntry registers our own PID while an engine
+     * IOCTL_SENTINEL_REGISTER_PID thread registers the service/watchdog PIDs. Claim
+     * a unique slot atomically so a concurrent writer can neither lose an update nor
+     * push the count past the array. The count is bumped before the slot is stored,
+     * so a lock-free reader may briefly see the new count with the slot still zero
+     * (reads as PID 0 => no match, benign) — never an out-of-bounds read. */
+    for (;;) {
+        LONG cur = (LONG)gProtectedCount;
+        if (cur >= (LONG)SENTINEL_MAX_PROTECTED) {
+            return; /* table full */
+        }
+        if (InterlockedCompareExchange((volatile LONG *)&gProtectedCount,
+                                       cur + 1, cur) == cur) {
+            idx = cur;
+            break;
+        }
+    }
+    gProtectedPids[idx] = Pid;
+    KeMemoryBarrier();
 }
 
 /* Pre-operation callback: strip dangerous rights unless the caller is itself a

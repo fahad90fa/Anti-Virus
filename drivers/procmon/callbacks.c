@@ -210,8 +210,8 @@ VOID SentinelUnregisterProcessCallbacks(VOID) {
 /* ----- Driver lifetime -------------------------------------------------- */
 VOID SentinelProcmonUnload(_In_ PDRIVER_OBJECT DriverObject) {
     UNREFERENCED_PARAMETER(DriverObject);
-    /* Tear down producers FIRST (each Ps*/Cm*/Ob* unregister DRAINS its callbacks),
-     * so nothing can post to the comms ring after SentinelSensorCommsStop frees it. */
+    /* Tear down producers FIRST (each Ps, Cm and Ob unregister DRAINS its
+     * callbacks) so nothing can post to the comms ring after it is freed. */
     SentinelUnregisterProcessCallbacks();
     SentinelUnregisterSelfProtection();
     SentinelSensorCommsStop(&gProcComms);

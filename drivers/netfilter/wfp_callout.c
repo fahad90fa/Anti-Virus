@@ -158,6 +158,12 @@ VOID SentinelUnregisterNetCallouts(VOID) {
             FwpmFilterDeleteById0(gEngineHandle, gFilterIdConnect);
             gFilterIdConnect = 0;
         }
+        /* The engine was opened with a NULL (non-dynamic) session, so the FWPM
+         * callout object added by FwpmCalloutAdd0 is PERSISTENT: it survives
+         * FwpmEngineClose0 and driver unload unless explicitly deleted. Without
+         * this, a reload hits STATUS_FWP_ALREADY_EXISTS (load-once-per-boot) and
+         * the BFE object leaks. Delete it by key while the engine is still open. */
+        FwpmCalloutDeleteByKey0(gEngineHandle, &SENTINEL_CALLOUT_CONNECT_V4);
         FwpmEngineClose0(gEngineHandle);
         gEngineHandle = NULL;
     }
@@ -213,6 +219,12 @@ NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
 
     status = SentinelRegisterNetCallouts(gNetComms.DeviceObject);
     if (!NT_SUCCESS(status)) {
+        /* Unwind any partial WFP registration FIRST (DriverUnload is NOT called
+         * when DriverEntry fails), then free the comms device/ring. Without this,
+         * a callout registered against gNetComms.DeviceObject would be left
+         * dangling over the device SentinelSensorCommsStop is about to delete, and
+         * the WFP engine handle + callout would leak. */
+        SentinelUnregisterNetCallouts();
         SentinelSensorCommsStop(&gNetComms);
         return status;
     }

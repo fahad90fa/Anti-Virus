@@ -112,10 +112,15 @@ static VOID SentinelpDrain(_In_ PSENTINEL_SENSOR_COMMS c) {
 
         KeAcquireSpinLock(&c->RingLock, &irql);
         if (c->RingCount == 0) {
-            /* a concurrent drain emptied the ring; hand the IRP back */
+            /* A concurrent drain emptied the ring; hand the IRP back and re-evaluate
+             * (continue, not break): an event posted during this window must still be
+             * paired with this now-re-inserted reader, or a sync-verdict event could
+             * be stranded and silently fail-open. This cannot spin — the top-of-loop
+             * empty check and a NULL IoCsqRemoveNextIrp both break, and each paired
+             * entry decrements RingCount, so every iteration makes progress or exits. */
             KeReleaseSpinLock(&c->RingLock, irql);
             IoCsqInsertIrp(&c->Csq, irp, NULL);
-            break;
+            continue;
         }
         sp = IoGetCurrentIrpStackLocation(irp);
         out = sp->Parameters.DeviceIoControl.OutputBufferLength;
