@@ -14,11 +14,46 @@
  * Built with the WDK; kernel-mode C.
  */
 /* ntifs.h (NOT ntddk.h) is the single base header for this TU: it declares the
- * PROCESS_ and THREAD_ access-right macros used below, and the Ob callback types.
- * This TU never includes comms.h or sensor_comms.h, so there is no ntddk vs ntifs
- * ordering collision. */
+ * Ob callback types (POB_PRE_OPERATION_INFORMATION etc.) and PsProcessType/
+ * PsThreadType. This TU never includes comms.h or sensor_comms.h, so there is no
+ * ntddk vs ntifs ordering collision. */
 #include <ntifs.h>
 #include "../common/shared_defs.h"
+
+/* Process/thread access-right bits. The kernel-mode headers on this WDK do not
+ * expose these winnt.h constants to a km translation unit, so define them from
+ * their well-known fixed values (guarded, so a header that does define them wins
+ * with no redefinition). These are the DesiredAccess bits an opener requests. */
+#ifndef PROCESS_TERMINATE
+#define PROCESS_TERMINATE         0x0001u
+#endif
+#ifndef PROCESS_CREATE_THREAD
+#define PROCESS_CREATE_THREAD     0x0002u
+#endif
+#ifndef PROCESS_VM_OPERATION
+#define PROCESS_VM_OPERATION      0x0008u
+#endif
+#ifndef PROCESS_VM_WRITE
+#define PROCESS_VM_WRITE          0x0020u
+#endif
+#ifndef PROCESS_SET_INFORMATION
+#define PROCESS_SET_INFORMATION   0x0200u
+#endif
+#ifndef PROCESS_SUSPEND_RESUME
+#define PROCESS_SUSPEND_RESUME    0x0800u
+#endif
+#ifndef THREAD_TERMINATE
+#define THREAD_TERMINATE          0x0001u
+#endif
+#ifndef THREAD_SUSPEND_RESUME
+#define THREAD_SUSPEND_RESUME     0x0002u
+#endif
+#ifndef THREAD_SET_CONTEXT
+#define THREAD_SET_CONTEXT        0x0010u
+#endif
+#ifndef THREAD_SET_INFORMATION
+#define THREAD_SET_INFORMATION    0x0020u
+#endif
 
 /* PIDs of the protected Sentinel processes (service + watchdog). The engine
  * registers them at startup via IOCTL_SENTINEL_REGISTER_PID, which the dispatch
