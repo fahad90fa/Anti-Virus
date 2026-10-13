@@ -5,17 +5,35 @@ snapshotted test VM** (test-signing on, WinDbg attached) — never on a host. Th
 are **sensors + enforcement**; every detection decision is made by the user-mode
 engine (`engine/`), never duplicated in the kernel.
 
-CI (`.github/workflows/ci.yml`, `drivers-windows`) attempts a WDK build on a
-hosted runner; the authoritative build is `build/build.ps1 -TestSign` in the VM.
-Runtime verification is `vm/run-integration-tests.ps1` + `vm/VERIFICATION-RUNBOOK.md`.
+CI (`.github/workflows/drivers.yml`, `drivers-windows`) builds all five drivers
+on a hosted Windows runner — each compiles, links, and passes `ApiValidator` as a
+Universal driver (`/W4 /WX`, `/kernel`, KMDF 1.15); this step is **required**.
+Signing and INF verification are skipped in CI (no cert; the runner's WDK ships a
+broken InfVerif) — the authoritative, fully-packaged build is `build/build.ps1
+-TestSign` in the VM, and runtime verification is `vm/run-integration-tests.ps1` +
+`vm/VERIFICATION-RUNBOOK.md`. Loading, signing, and runtime behavior are **only**
+verified in the VM, never in CI.
 
 ## Shared protocol — `common/`
 
 `shared_defs.h` is the versioned kernel⇄user wire format (C-compatible,
-fixed-width, no pointers across the boundary). `comms.h` / `comms.c` implement
-the FltMgr communication-port server; the user side is `engine/service/port_client.cpp`
-(`sentinel service`). Bump `SENTINEL_PROTOCOL_VERSION` when extending; the service
-rejects a mismatched version and the kernel applies its fail-safe.
+fixed-width, no pointers across the boundary). There are **two transports** that
+carry the same messages:
+
+- `comms.h` / `comms.c` — the **FltMgr communication-port** server, used by the
+  minifilters (`fsfilter`, `shadowfs`). User side: `engine/service/port_client.cpp`.
+- `sensor_comms.h` / `sensor_comms.c` — the **control-device IOCTL** transport
+  (inverted-call model: a secured control device + symlink, cancel-safe `IO_CSQ`
+  for the async event stream, a bounded drop-oldest event ring, and a
+  sequence-matched waiter table for synchronous verdicts), used by the
+  non-minifilter sensor drivers (`procmon`, `netfilter`), which have no
+  `PFLT_FILTER`. The control device's SDDL restricts access to SYSTEM +
+  Administrators, a single trusted client connects, and every IOCTL input length
+  is validated — it is not an attack surface.
+
+Bump `SENTINEL_PROTOCOL_VERSION` when changing the wire messages; both the FltMgr
+connect and the `IOCTL_SENTINEL_CONNECT` handshake reject a mismatched version and
+the kernel applies its fail-safe.
 
 ## `fsfilter/` — file-system minifilter  [Phase 1]
 
@@ -32,7 +50,8 @@ working); `sentinel service --fail-closed` makes it deny unknowns instead. Load:
 `callbacks.c`: `PsSetCreateProcessNotifyRoutineEx` (with launch veto),
 `PsSetCreateThreadNotifyRoutine` (flags **remote** threads — the injection tail),
 `PsSetLoadImageNotifyRoutine`, and `CmRegisterCallbackEx` (persistence writes).
-All feed the engine's action graph via the port. `selfprotect.c`:
+All feed the engine's action graph via the control-device IOCTL transport
+(`sensor_comms.c`). `selfprotect.c`:
 `ObRegisterCallbacks` strips terminate/inject rights to the Sentinel service +
 driver only — defensive anti-tamper that never touches other products or the OS.
 

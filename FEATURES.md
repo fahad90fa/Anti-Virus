@@ -23,13 +23,14 @@ Verification baseline (from CI, commit-current):
 - `engine-windows` ✅ — engine (incl. the Windows FltMgr filter-service) builds
   MSVC `/W4 /WX` Release; 71 tests pass.
 - `ui-windows` ✅ — WPF dashboard + tray build with .NET 8.
-- `drivers-windows` ⚙️ — **core drivers build green on the WDK kernel toolchain**:
-  the `fsfilter` and `shadowfs` minifilters and the `elam` boot driver compile,
-  link, and pass `ApiValidator` (`/W4 /WX`, `/kernel`, KMDF 1.15). The sensor
-  drivers (`procmon`, `netfilter`) are still best-effort (`continue-on-error`)
-  and do **not** yet build: as non-minifilter drivers they cannot share the
-  FltMgr port `comms.c` creates and need the control-device IOCTL comms refactor
-  (tracked). INF/sign/load/runtime are VM-gated, not covered here.
+- `drivers-windows` ⚙️ — **all five kernel drivers build green on the WDK kernel
+  toolchain** (required): the `fsfilter` and `shadowfs` minifilters, the `elam`
+  boot driver, and the `procmon` + `netfilter` sensor drivers each compile, link,
+  and pass `ApiValidator` as Universal drivers (`/W4 /WX`, `/kernel`, KMDF 1.15).
+  The minifilters use the FltMgr comms (`comms.c`); `procmon`/`netfilter` use the
+  control-device IOCTL comms (`sensor_comms.c`). INF stamping/verification,
+  catalog, signing, loading and runtime behavior are VM-gated and **not** covered
+  here.
 - No `TODO`/stub markers in any Windows code path.
 
 **No acceptance criterion is marked VM-verified here**, because this work was
@@ -130,22 +131,23 @@ turnkey via the VM kit; see the final report and the runbook.
   graph. Builds clean on Windows CI; stub off Windows.
 - 🪟 ETW-TI consumer (runs under the anti-malware PPL process in the VM).
 
-## Kernel-mode core (`drivers/`) — ⚙️ minifilters · 🪟 sensor drivers
+## Kernel-mode core (`drivers/`) — ⚙️ (all five build green in CI)
 - ⚙️ File-system minifilter (`fsfilter`) — intercept execute/create/write,
   synchronous verdict gate, async behavioral events. Builds green on the WDK
   kernel toolchain in CI (compile + link + `ApiValidator`).
-- 🪟 Process / thread / image / registry callbacks — with process-launch veto and
-  remote-thread (injection) detection. In `procmon`; pending the sensor-driver
-  comms refactor before it builds in CI.
-- 🪟 Object-callback self-protection — strips dangerous access to protected
-  processes. In `procmon` (`selfprotect.c`); pending the comms refactor.
-- 🪟 WFP network callout — per-process connection filtering + C2/beacon events.
-  In `netfilter`; pending the comms refactor (and `wdf.h` decoupling — a WFP
-  callout is not a KMDF driver).
+- ⚙️ Process / thread / image / registry callbacks (`procmon`) — with
+  process-launch veto and remote-thread (injection) detection. Builds green in CI.
+- ⚙️ Object-callback self-protection (`procmon`, `selfprotect.c`) — strips
+  dangerous access to protected processes. Builds green in CI.
+- ⚙️ WFP network callout (`netfilter`) — per-process connection filtering +
+  C2/beacon events. Builds green in CI.
 - ⚙️ Shadow COW minifilter (`shadowfs`) — kernel half of the rollback gate.
   Builds green on the WDK kernel toolchain in CI (compile + link + `ApiValidator`).
-- ⚙️ Kernel ⇄ user communication-port protocol (shared, versioned) — `comms.c`
-  compiles clean into both minifilters in CI.
+- ⚙️ Kernel ⇄ user comms — two transports: the FltMgr communication port
+  (`comms.c`, used by the minifilters) and the control-device IOCTL inverted-call
+  transport (`sensor_comms.c`, used by `procmon`/`netfilter` — secured device,
+  cancel-safe `IO_CSQ`, bounded event ring, sequence-matched sync verdicts). Both
+  carry the same versioned `shared_defs.h` wire messages and compile clean in CI.
 
 ## Boot-time & rootkit/bootkit defense (`drivers/elam`) — ⚙️
 - ⚙️ ELAM boot driver (`elam`) — classifies boot drivers good/bad/unknown before
@@ -181,8 +183,8 @@ turnkey via the VM kit; see the final report and the runbook.
 | --- | --- | --- |
 | 0 | User-mode foundation | ✅ built + tested (engine, CLI, EICAR self-test) |
 | 1 | File minifilter | ⚙️ `fsfilter` builds on WDK CI |
-| 2 | Behavior & process callbacks | ✅ engine · 🪟 `procmon` (pending comms refactor) |
-| 3 | Network layer (WFP) | 🪟 `netfilter` (pending comms refactor) |
+| 2 | Behavior & process callbacks | ✅ engine · ⚙️ `procmon` builds on WDK CI |
+| 3 | Network layer (WFP) | ⚙️ `netfilter` builds on WDK CI |
 | 4 | Shadow-commit rollback gate | ✅ engine · ⚙️ `shadowfs` builds on WDK CI |
 | 5 | Boot & rootkit tier (ELAM, PPL, BYOVD) | ⚙️ `elam`+BYOVD build on WDK CI · PPL design |
 | 6 | Hardening, UI, updates | ✅ engine/updater/tools · 🪟 UI |
