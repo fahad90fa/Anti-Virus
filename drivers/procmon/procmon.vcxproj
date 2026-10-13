@@ -37,14 +37,18 @@
       <PreprocessorDefinitions>POOL_NX_OPTIN=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <Link>
+      <!-- IoCreateDeviceSecure (the secured control device) lives in wdmsec.lib. -->
+      <AdditionalDependencies>$(DDK_LIB_PATH)wdmsec.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="callbacks.c" />
     <ClCompile Include="selfprotect.c" />
-    <ClCompile Include="..\common\comms.c" />
+    <ClCompile Include="..\common\sensor_comms.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\common\comms.h" />
+    <ClInclude Include="..\common\sensor_comms.h" />
     <ClInclude Include="..\common\shared_defs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

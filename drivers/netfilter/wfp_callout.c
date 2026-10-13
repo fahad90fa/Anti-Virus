@@ -22,24 +22,27 @@
  *
  * Built with the WDK; kernel-mode C. Links fwpkclnt.lib + ndis.lib.
  */
+/* A WFP callout is a WDM driver, NOT KMDF — it must not include <wdf.h>. ntddk.h
+ * is the single base header for this TU; initguid.h (before the WFP management
+ * header) makes the WFP layer GUIDs and our callout GUID emit as data. */
 #include <ntddk.h>
-#include <wdf.h>
+#include <initguid.h>
 #include <fwpsk.h>
 #include <fwpmk.h>
-#include "../common/comms.h"
+#include "../common/sensor_comms.h"
 #include "../common/shared_defs.h"
 
 /* WFP engine + callout registration state. */
 HANDLE gEngineHandle = NULL;
 UINT32 gCalloutIdConnect = 0;
 UINT64 gFilterIdConnect = 0;
-PDEVICE_OBJECT gNetDevice = NULL;
 
-/* The engine connection. In a unified install the user-mode service connects to
- * each driver's port; netfilter exposes its own port for connection events and
- * async block requests. gNetComms.Filter is set when the shared filter is
- * available; otherwise events are queued until the engine connects. */
-SENTINEL_COMMS gNetComms = {0};
+/* netfilter is NOT a minifilter, so it talks to the engine over the secured
+ * control device the sensor comms module creates (sensor_comms.c). That same
+ * device object doubles as the anchor for the WFP callout registration.
+ * netfilter only ever sends ASYNC events (never asks a synchronous verdict), and
+ * its classify callback can run at DISPATCH_LEVEL — the send path is DISPATCH-safe. */
+SENTINEL_SENSOR_COMMS gNetComms = {0};
 
 /* {E9A1C7D2-0001-4C3A-9B10-SENTINELNETC} — callout GUID (dev placeholder). */
 DEFINE_GUID(SENTINEL_CALLOUT_CONNECT_V4,
@@ -88,8 +91,8 @@ VOID SentinelClassifyConnectV4(
     evt.path[2] = (WCHAR)((remoteIp >> 8) & 0xFF);
     evt.path[3] = (WCHAR)(remoteIp & 0xFF);
     evt.path_chars = 4;
-    SentinelCommsSendEvent(&gNetComms, SentinelMsgNetworkConnect, &evt,
-                           sizeof(evt));
+    SentinelSensorSendEvent(&gNetComms, SentinelMsgNetworkConnect, &evt,
+                            sizeof(evt));
 
     classifyOut->actionType = FWP_ACTION_PERMIT;
     if ((filter != NULL) &&
@@ -159,42 +162,58 @@ VOID SentinelUnregisterNetCallouts(VOID) {
         gEngineHandle = NULL;
     }
     if (gCalloutIdConnect != 0) {
-        FwpsCalloutUnregisterById0(gCalloutIdConnect);
+        /* Drain: FwpsCalloutUnregisterById0 returns STATUS_DEVICE_BUSY while any
+         * classify is still in flight. Retry until it succeeds so no classify can
+         * touch the comms ring after SentinelSensorCommsStop frees it. */
+        NTSTATUS us;
+        LARGE_INTEGER delay;
+        for (;;) {
+            us = FwpsCalloutUnregisterById0(gCalloutIdConnect);
+            if (us != STATUS_DEVICE_BUSY) {
+                break;
+            }
+            delay.QuadPart = -(100LL * 1000LL); /* 10 ms, relative */
+            KeDelayExecutionThread(KernelMode, FALSE, &delay);
+        }
         gCalloutIdConnect = 0;
     }
 }
 
 /* ----- Driver lifetime -------------------------------------------------- */
 VOID SentinelNetUnload(_In_ PDRIVER_OBJECT DriverObject) {
-    SentinelUnregisterNetCallouts();
-    SentinelCommsClosePort(&gNetComms);
-    if (gNetDevice != NULL) {
-        IoDeleteDevice(gNetDevice);
-        gNetDevice = NULL;
-    }
     UNREFERENCED_PARAMETER(DriverObject);
+    /* Unregister the callouts FIRST (drains all in-flight classify), THEN stop
+     * comms (owns + deletes the device & symlink, frees the ring). Doing it in
+     * this order guarantees no DISPATCH producer can run after the ring is freed. */
+    SentinelUnregisterNetCallouts();
+    SentinelSensorCommsStop(&gNetComms);
 }
 
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
                      _In_ PUNICODE_STRING RegistryPath) {
     NTSTATUS status;
-    UNICODE_STRING deviceName;
+    SENTINEL_SENSOR_CONFIG cfg;
     UNREFERENCED_PARAMETER(RegistryPath);
 
     DriverObject->DriverUnload = SentinelNetUnload;
 
-    /* WFP callouts need a device object to anchor registration. */
-    RtlInitUnicodeString(&deviceName, L"\\Device\\SentinelNet");
-    status = IoCreateDevice(DriverObject, 0, &deviceName, FILE_DEVICE_NETWORK,
-                            FILE_DEVICE_SECURE_OPEN, FALSE, &gNetDevice);
+    /* Create the secured control device (the engine's event channel). It doubles
+     * as the WFP registration anchor. netfilter never asks a synchronous verdict. */
+    RtlZeroMemory(&cfg, sizeof(cfg));
+    cfg.DeviceName = SENTINEL_NET_DEVICE_NAME;
+    cfg.SymbolicLinkName = SENTINEL_NET_SYMLINK_NAME;
+    cfg.SupportsSyncVerdict = FALSE;
+    cfg.FailClosed = FALSE;
+    cfg.OnRegisterPid = NULL; /* no self-protection in netfilter */
+
+    status = SentinelSensorCommsStart(&gNetComms, DriverObject, &cfg);
     if (!NT_SUCCESS(status)) {
         return status;
     }
 
-    status = SentinelRegisterNetCallouts(gNetDevice);
+    status = SentinelRegisterNetCallouts(gNetComms.DeviceObject);
     if (!NT_SUCCESS(status)) {
-        IoDeleteDevice(gNetDevice);
-        gNetDevice = NULL;
+        SentinelSensorCommsStop(&gNetComms);
         return status;
     }
     return STATUS_SUCCESS;

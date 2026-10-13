@@ -128,6 +128,63 @@ typedef struct _SENTINEL_CONNECT_CONTEXT {
     uint32_t reserved;
 } SENTINEL_CONNECT_CONTEXT;
 
+/* ---- Sensor control-device transport (procmon, netfilter) -----------------
+ * The minifilters (fsfilter, shadowfs) talk to the engine over an FltMgr
+ * communication port (see comms.h). The non-minifilter sensor drivers cannot
+ * use an FltMgr port (they have no PFLT_FILTER), so they expose a secured
+ * control device and use an inverted-call IOCTL transport (sensor_comms.c).
+ * The wire MESSAGES are the SAME structs above (SENTINEL_MSG_HEADER +
+ * SENTINEL_EVENT_MSG, SENTINEL_REPLY, SENTINEL_CONNECT_CONTEXT); only the
+ * transport differs, so SENTINEL_PROTOCOL_VERSION is unchanged. */
+
+/* Control-device + symlink names, and the user-mode CreateFile path. */
+#define SENTINEL_PROC_DEVICE_NAME   L"\\Device\\SentinelProc"
+#define SENTINEL_PROC_SYMLINK_NAME  L"\\??\\SentinelProc"
+#define SENTINEL_PROC_USER_PATH     L"\\\\.\\SentinelProc"
+#define SENTINEL_NET_DEVICE_NAME    L"\\Device\\SentinelNet"
+#define SENTINEL_NET_SYMLINK_NAME   L"\\??\\SentinelNet"
+#define SENTINEL_NET_USER_PATH      L"\\\\.\\SentinelNet"
+
+/* Self-contained CTL_CODE expansion so this header needs NOTHING from
+ * <winioctl.h> (user) or <wdm.h> (kernel) and both sides agree byte-for-byte.
+ * It reproduces CTL_CODE's exact bit layout:
+ *   value = (DeviceType << 16) | (Access << 14) | (Function << 2) | Method */
+#define SENTINEL_FILE_DEVICE        0x00008000u  /* custom/vendor device type */
+#define SENTINEL_METHOD_BUFFERED    0x0u
+#define SENTINEL_FILE_ANY_ACCESS    0x0u
+#define SENTINEL_FILE_READ_ACCESS   0x1u
+#define SENTINEL_FILE_WRITE_ACCESS  0x2u
+#define SENTINEL_CTL_CODE(func, access) \
+    ( ((uint32_t)(SENTINEL_FILE_DEVICE)        << 16) \
+    | ((uint32_t)(access)                      << 14) \
+    | ((uint32_t)(func)                        <<  2) \
+    | ((uint32_t)(SENTINEL_METHOD_BUFFERED)) )
+
+/* IOCTLs (all METHOD_BUFFERED: the kernel owns a bounded system-buffer copy,
+ * never a raw user pointer). Values: CONNECT=0x8000E000, GET_EVENT=0x80006004,
+ * POST_VERDICT=0x8000A008, REGISTER_PID=0x8000A00C. */
+#define IOCTL_SENTINEL_CONNECT \
+    SENTINEL_CTL_CODE(0x800u, SENTINEL_FILE_READ_ACCESS | SENTINEL_FILE_WRITE_ACCESS)
+#define IOCTL_SENTINEL_GET_EVENT \
+    SENTINEL_CTL_CODE(0x801u, SENTINEL_FILE_READ_ACCESS)
+#define IOCTL_SENTINEL_POST_VERDICT \
+    SENTINEL_CTL_CODE(0x802u, SENTINEL_FILE_WRITE_ACCESS)
+#define IOCTL_SENTINEL_REGISTER_PID \
+    SENTINEL_CTL_CODE(0x803u, SENTINEL_FILE_WRITE_ACCESS)
+
+/* Set in the (otherwise zero) SENTINEL_MSG_HEADER.reserved for an event that
+ * requires a synchronous POST_VERDICT reply (procmon's process-create gate).
+ * The struct layout is unchanged. */
+#define SENTINEL_FLAG_SYNC_VERDICT  0x00000001u
+
+/* IOCTL_SENTINEL_REGISTER_PID payload: the engine registers the PIDs of the
+ * protected Sentinel processes (service + watchdog) for self-protection. */
+#define SENTINEL_MAX_REGISTER_PIDS  8u
+typedef struct _SENTINEL_REGISTER_PID_REQUEST {
+    uint32_t count;                             /* <= SENTINEL_MAX_REGISTER_PIDS */
+    uint32_t pids[SENTINEL_MAX_REGISTER_PIDS];
+} SENTINEL_REGISTER_PID_REQUEST;
+
 #ifdef __cplusplus
 }  /* extern "C" */
 #endif

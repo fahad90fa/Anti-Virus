@@ -13,16 +13,21 @@
  *
  * Built with the WDK; kernel-mode C.
  */
-#include <ntddk.h>
+/* ntifs.h (NOT ntddk.h) is the single base header for this TU: it declares the
+ * PROCESS_*/THREAD_* access-right macros used below, and the Ob callback types.
+ * This TU never includes comms.h/sensor_comms.h, so there is no ntddk/ntifs
+ * ordering collision. */
+#include <ntifs.h>
 #include "../common/shared_defs.h"
 
-extern SENTINEL_COMMS gProcComms;
-
-/* PIDs of the protected Sentinel processes (service + watchdog). Registered by
- * the service over the comms port at startup. Small fixed set. */
+/* PIDs of the protected Sentinel processes (service + watchdog). The engine
+ * registers them at startup via IOCTL_SENTINEL_REGISTER_PID, which the dispatch
+ * routine turns into SentinelRegisterProtectedPid calls. Small fixed set. */
 #define SENTINEL_MAX_PROTECTED 8
 ULONG gProtectedPids[SENTINEL_MAX_PROTECTED] = {0};
-ULONG gProtectedCount = 0;
+/* volatile + publish-slot-before-count so a lock-free reader (the Ob pre-op) that
+ * observes an incremented count always sees the PID already stored. */
+volatile ULONG gProtectedCount = 0;
 PVOID gObRegHandle = NULL;
 
 /* Access rights we refuse to hand to untrusted openers of a protected process. */
@@ -46,7 +51,11 @@ static BOOLEAN SentinelIsProtectedPid(ULONG Pid) {
 
 VOID SentinelRegisterProtectedPid(ULONG Pid) {
     if (gProtectedCount < SENTINEL_MAX_PROTECTED && !SentinelIsProtectedPid(Pid)) {
-        gProtectedPids[gProtectedCount++] = Pid;
+        /* Publish the slot before bumping the count so a concurrent lock-free
+         * reader that sees the new count always sees the stored PID. */
+        gProtectedPids[gProtectedCount] = Pid;
+        KeMemoryBarrier();
+        gProtectedCount++;
     }
 }
 

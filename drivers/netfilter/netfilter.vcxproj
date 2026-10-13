@@ -35,15 +35,15 @@
       <AdditionalIncludeDirectories>..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(DDK_LIB_PATH)fwpkclnt.lib;$(DDK_LIB_PATH)ndis.lib;$(DDK_LIB_PATH)uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(DDK_LIB_PATH)wdmsec.lib;$(DDK_LIB_PATH)fwpkclnt.lib;$(DDK_LIB_PATH)ndis.lib;$(DDK_LIB_PATH)uuid.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="wfp_callout.c" />
-    <ClCompile Include="..\common\comms.c" />
+    <ClCompile Include="..\common\sensor_comms.c" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\common\comms.h" />
+    <ClInclude Include="..\common\sensor_comms.h" />
     <ClInclude Include="..\common\shared_defs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

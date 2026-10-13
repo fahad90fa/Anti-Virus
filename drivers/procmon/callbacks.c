@@ -20,12 +20,13 @@
  * Built with the WDK; kernel-mode C. Test only in the disposable VM.
  */
 #include <ntddk.h>
-#include "../common/comms.h"
+#include "../common/sensor_comms.h"
 #include "../common/shared_defs.h"
 
-/* Globals owned by this translation unit (procmon's main unit). selfprotect.c
- * references gProcComms via extern. */
-SENTINEL_COMMS gProcComms = {0};
+/* Globals owned by this translation unit (procmon's main unit). procmon is NOT a
+ * minifilter, so it uses the control-device IOCTL transport (sensor_comms.c),
+ * not the FltMgr port. */
+SENTINEL_SENSOR_COMMS gProcComms = {0};
 BOOLEAN gBlockOnMaliciousProcess = TRUE;
 
 /* Self-protection entry points implemented in selfprotect.c. */
@@ -77,8 +78,8 @@ VOID SentinelCreateProcessNotify(_Inout_ PEPROCESS Process,
         header.kind = SentinelMsgProcessCreate;
         header.process_id = (ULONG)(ULONG_PTR)ProcessId;
 
-        if (NT_SUCCESS(SentinelCommsAskVerdict(&gProcComms, &header, &evt,
-                                               sizeof(evt), &reply, 2000)) &&
+        if (NT_SUCCESS(SentinelSensorAskVerdict(&gProcComms, &header, &evt,
+                                                sizeof(evt), &reply, 2000)) &&
             gBlockOnMaliciousProcess &&
             (reply.action == SentinelActionBlock ||
              reply.action == SentinelActionKillRollback)) {
@@ -86,8 +87,8 @@ VOID SentinelCreateProcessNotify(_Inout_ PEPROCESS Process,
         }
     } else {
         /* Process exit. */
-        SentinelCommsSendEvent(&gProcComms, SentinelMsgProcessExit, &evt,
-                               sizeof(evt));
+        SentinelSensorSendEvent(&gProcComms, SentinelMsgProcessExit, &evt,
+                                sizeof(evt));
     }
 }
 
@@ -113,8 +114,8 @@ VOID SentinelCreateThreadNotify(_In_ HANDLE ProcessId,
     if (currentPid != ProcessId) {
         evt.extra |= 0x80000000u; /* remote-thread flag */
     }
-    SentinelCommsSendEvent(&gProcComms, SentinelMsgThreadCreate, &evt,
-                           sizeof(evt));
+    SentinelSensorSendEvent(&gProcComms, SentinelMsgThreadCreate, &evt,
+                            sizeof(evt));
 }
 
 /* ----- Image load (side-loaded DLLs, unsigned drivers) ------------------ */
@@ -127,7 +128,7 @@ VOID SentinelLoadImageNotify(_In_opt_ PUNICODE_STRING FullImageName,
     /* SystemModeImage => a driver load; flag it for the rootkit/BYOVD path. */
     evt.extra = ImageInfo->SystemModeImage ? 1u : 0u;
     SentinelFillPath(&evt, FullImageName);
-    SentinelCommsSendEvent(&gProcComms, SentinelMsgImageLoad, &evt, sizeof(evt));
+    SentinelSensorSendEvent(&gProcComms, SentinelMsgImageLoad, &evt, sizeof(evt));
 }
 
 /* ----- Registry (persistence) ------------------------------------------- */
@@ -152,8 +153,8 @@ NTSTATUS SentinelRegistryCallback(_In_ PVOID CallbackContext,
         if (info->ValueName != NULL) {
             SentinelFillPath(&evt, info->ValueName);
         }
-        SentinelCommsSendEvent(&gProcComms, SentinelMsgRegistryOp, &evt,
-                               sizeof(evt));
+        SentinelSensorSendEvent(&gProcComms, SentinelMsgRegistryOp, &evt,
+                                sizeof(evt));
         /* The engine can later request a deny; by default we observe, because a
          * synchronous registry deny on every write is too costly. Boot-critical
          * persistence keys are the exception and handled by policy. */
@@ -209,34 +210,52 @@ VOID SentinelUnregisterProcessCallbacks(VOID) {
 /* ----- Driver lifetime -------------------------------------------------- */
 VOID SentinelProcmonUnload(_In_ PDRIVER_OBJECT DriverObject) {
     UNREFERENCED_PARAMETER(DriverObject);
+    /* Tear down producers FIRST (each Ps*/Cm*/Ob* unregister DRAINS its callbacks),
+     * so nothing can post to the comms ring after SentinelSensorCommsStop frees it. */
     SentinelUnregisterProcessCallbacks();
     SentinelUnregisterSelfProtection();
-    SentinelCommsClosePort(&gProcComms);
+    SentinelSensorCommsStop(&gProcComms);
 }
 
 NTSTATUS DriverEntry(_In_ PDRIVER_OBJECT DriverObject,
                      _In_ PUNICODE_STRING RegistryPath) {
     NTSTATUS status;
+    SENTINEL_SENSOR_CONFIG cfg;
     UNREFERENCED_PARAMETER(RegistryPath);
 
     DriverObject->DriverUnload = SentinelProcmonUnload;
 
-    /* procmon is a legacy (non-FltMgr) driver, so it uses the generic filter
-     * communication only after the minifilter has created the shared filter.
-     * Here it registers its callbacks and the object-callback self-protection. */
+    /* procmon is NOT a minifilter, so it talks to the engine over a secured
+     * control device (sensor_comms.c). Start comms BEFORE registering callbacks:
+     * a callback that fired before the spinlocks/ring are initialized would touch
+     * uninitialized state. The engine registers the protected service + watchdog
+     * PIDs at startup via IOCTL_SENTINEL_REGISTER_PID -> cfg.OnRegisterPid. */
+    RtlZeroMemory(&cfg, sizeof(cfg));
+    cfg.DeviceName = SENTINEL_PROC_DEVICE_NAME;
+    cfg.SymbolicLinkName = SENTINEL_PROC_SYMLINK_NAME;
+    cfg.SupportsSyncVerdict = TRUE;
+    cfg.FailClosed = FALSE; /* fail-open default; mirrors comms.c / fsfilter */
+    cfg.OnRegisterPid = SentinelRegisterProtectedPid;
+
+    status = SentinelSensorCommsStart(&gProcComms, DriverObject, &cfg);
+    if (!NT_SUCCESS(status)) {
+        return status;
+    }
+
     status = SentinelRegisterProcessCallbacks(DriverObject);
     if (!NT_SUCCESS(status)) {
+        SentinelSensorCommsStop(&gProcComms);
         return status;
     }
 
     status = SentinelRegisterSelfProtection();
     if (!NT_SUCCESS(status)) {
         SentinelUnregisterProcessCallbacks();
+        SentinelSensorCommsStop(&gProcComms);
         return status;
     }
 
-    /* Protect our own driver process context implicitly; the service registers
-     * the user-mode service + watchdog PIDs over the comms port at startup. */
+    /* Protect our own driver process context implicitly. */
     SentinelRegisterProtectedPid((ULONG)(ULONG_PTR)PsGetCurrentProcessId());
     return STATUS_SUCCESS;
 }
